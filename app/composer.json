@@ -1,0 +1,21 @@
+{
+	"name": "joystick/bee-framework",
+	"description": "Bee Framework application core and runtime.",
+	"license": "GPL-3.0-only",
+	"autoload": {
+		"psr-4": {
+			"Bee\\Core\\": "src/Core/",
+			"Bee\\Updater\\": "src/Updater/"
+		}
+	},
+	"require": {
+		"verot/class.upload.php": "^2.0",
+		"phpmailer/phpmailer": "^6.1",
+		"twig/twig": "^3.0",
+		"cocur/slugify": "^4.4",
+		"endroid/qr-code": "^4.8",
+		"dompdf/dompdf": "^2.0",
+		"vlucas/phpdotenv": "^5.6",
+		"robthree/twofactorauth": "^3.0"
+	}
+}

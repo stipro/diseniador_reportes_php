@@ -1,0 +1,35 @@
+<?php
+/**
+ * Plantilla general de modelos
+ * @version 2.0.0
+ *
+ * Modelo de [[REPLACE]]
+ */
+class [[REPLACE]]Model extends BeeModel {
+  /**
+  * Nombre de la tabla
+  */
+  protected string $table = '[[REPLACE_TABLE]]';
+  
+  // Nombre de tablas secundarias
+  // public static $t2 = '__tabla 2__'; 
+  // public static $t3 = '__tabla 3__'; 
+
+  // Esquema del Modelo
+  [[REPLACE_SCHEME]]
+  
+  static function allPaginated()
+  {
+    // Todos los registros
+    $sql = 'SELECT * FROM [[REPLACE_TABLE]] ORDER BY id DESC';
+    return PaginationHandler::paginate($sql);
+  }
+
+  static function byId($id)
+  {
+    // Un registro con $id
+    $sql = 'SELECT * FROM [[REPLACE_TABLE]] WHERE id = :id LIMIT 1';
+    return ($rows = Model::query($sql, ['id' => $id])) ? $rows[0] : [];
+  }
+}
+

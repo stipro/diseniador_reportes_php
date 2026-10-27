@@ -385,7 +385,7 @@ textarea.form-control {
 }
 
 #toast-container .toast {
-  background: var(--bee-ink);
+  background-color: var(--bee-ink);
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: var(--bee-radius);
   -webkit-box-shadow: var(--bee-shadow);
@@ -394,15 +394,15 @@ textarea.form-control {
 }
 
 #toast-container .toast-success {
-  background: var(--bee-success);
+  background-color: var(--bee-success);
 }
 
 #toast-container .toast-error {
-  background: var(--bee-danger);
+  background-color: var(--bee-danger);
 }
 
 #toast-container .toast-warning {
-  background: var(--bee-warning);
+  background-color: var(--bee-warning);
 }
 
 .loader-container {

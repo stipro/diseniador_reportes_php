@@ -90,6 +90,18 @@
 	padding: 0.2rem;
 }
 
+.rd-shell .rd-color-control .form-control-color {
+	width: 1%;
+	min-width: 0;
+	flex: 1 1 auto;
+}
+
+.rd-shell .rd-color-control .btn {
+	width: 2.5rem;
+	flex: 0 0 2.5rem;
+	padding-inline: 0.4rem;
+}
+
 .rd-shell .form-label {
 	display: block;
 	margin-bottom: 0.25rem;

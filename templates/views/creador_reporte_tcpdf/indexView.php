@@ -53,7 +53,7 @@
         <div class="rd-toolbar-group" role="group" aria-label="Ayudas visuales">
           <button class="rd-icon-btn" type="button" title="Grilla de 10 mm" aria-label="Mostrar grilla" aria-pressed="true" data-rd-action="toggle-grid"><i class="fa fa-border-all"></i></button>
           <button class="rd-icon-btn" type="button" title="Márgenes de 10 mm" aria-label="Mostrar márgenes" aria-pressed="true" data-rd-action="toggle-margins"><i class="fa fa-vector-square"></i></button>
-          <button class="rd-icon-btn" type="button" title="Ajustar a guías (10 mm)" aria-label="Ajustar a guías" aria-pressed="true" data-rd-action="toggle-snap"><i class="fa fa-magnet"></i></button>
+          <button class="rd-icon-btn" type="button" title="Ajustar a la grilla y alinear con otros elementos" aria-label="Ajustar a la grilla y a otros elementos" aria-pressed="true" data-rd-action="toggle-snap"><i class="fa fa-magnet"></i></button>
         </div>
 
         <div class="rd-toolbar-group" role="group" aria-label="Zoom">

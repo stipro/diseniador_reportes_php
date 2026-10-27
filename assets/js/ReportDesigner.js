@@ -8,6 +8,11 @@ class ReportDesigner {
   static PAGE = { width: 210, height: 297, margin: 10 };
   static PX_PER_MM = 3; // escala del lienzo al 100 % de zoom
   static MM_TO_PT = 2.8346; // TCPDF usa puntos para las fuentes
+  static FONT_FAMILIES = {
+    arial: { label: "Arial (Helvetica)", css: "Arial, Helvetica, sans-serif", tcpdf: "helvetica", jsPDF: "helvetica" },
+    times: { label: "Times New Roman (Times)", css: '"Times New Roman", Times, serif', tcpdf: "times", jsPDF: "times" },
+    courier: { label: "Courier New (Courier)", css: '"Courier New", Courier, monospace', tcpdf: "courier", jsPDF: "courier" },
+  };
   static ELEMENT_NAMES = {
     text: "Texto",
     line: "Línea",
@@ -33,8 +38,8 @@ class ReportDesigner {
     this.stage = root.querySelector("[data-rd-stage]");
     this.layers = root.querySelector("[data-rd-layers]");
     this.properties = root.querySelector("[data-rd-properties]");
-    this.elements = this.demoElements();
-    this.selectedId = "title";
+    this.elements = [];
+    this.selectedId = null;
     this.zoom = 100;
     this.showGrid = true;
     this.showMargins = true;
@@ -44,6 +49,7 @@ class ReportDesigner {
     this.history = [];
     this.historyIndex = -1;
     this.drag = null;
+    this.alignmentGuides = { vertical: null, horizontal: null };
     this.dirty = false;
     this.nextId = 1;
     this.dom = {};
@@ -91,18 +97,6 @@ class ReportDesigner {
     return this.elements.find((element) => element.id === this.selectedId) || null;
   }
 
-  demoElements() {
-    return [
-      { id: "title", type: "text", label: "Título del reporte", text: "DECLARACIÓN JURADA DE PROCEDENCIA DE MINERAL", binding: "", x: 13, y: 21, w: 184, h: 9, fontSize: 4.2, color: "#191a1d", align: "C", bold: true, visible: true, locked: false },
-      { id: "date", type: "text", label: "Fecha", text: "Lima, {{fecha_emision}}", binding: "fecha_emision", x: 120, y: 33, w: 76, h: 6, fontSize: 3, color: "#3d3f45", align: "R", bold: false, visible: true, locked: false },
-      { id: "intro", type: "text", label: "Texto de declaración", text: "Yo, {{declarante.nombre}}, identificado con DNI {{declarante.dni}}, declaro bajo juramento que:", binding: "", x: 15, y: 48, w: 180, h: 7, fontSize: 3.2, color: "#3d3f45", align: "L", bold: false, visible: true, locked: false },
-      { id: "detail", type: "table", label: "Detalle de lote", x: 15, y: 70, w: 180, h: 18, fontSize: 2.7, color: "#191a1d", visible: true, locked: false },
-      { id: "signature", type: "line", label: "Línea de firma", x: 30, y: 245, w: 60, h: 0, color: "#191a1d", visible: true, locked: false },
-      { id: "fingerprint", type: "rect", label: "Recuadro de huella", x: 145, y: 225, w: 35, h: 35, color: "#73757d", fill: "transparent", visible: true, locked: false },
-      { id: "qr", type: "qrcode", label: "Código QR", x: 165, y: 15, w: 18, h: 18, color: "#191a1d", visible: true, locked: true },
-    ];
-  }
-
   /* ------------------------------------------------------------------ */
   /* Eventos                                                             */
   /* ------------------------------------------------------------------ */
@@ -126,6 +120,8 @@ class ReportDesigner {
       if (action === "clear") this.clearAll();
       if (action === "clear-reference") this.clearReference();
       if (action === "clear-fill") this.updateSelected({ fill: "transparent" }, "Relleno quitado");
+      if (action === "pick-color") this.pickColor(actionButton.dataset.rdColorTarget);
+      if (action === "rotation-reset") this.updateSelected({ rotation: 0 }, "Rotación restablecida");
       if (action === "layer-up") this.moveLayer("up");
       if (action === "layer-down") this.moveLayer("down");
       if (action === "duplicate") this.duplicateSelected();
@@ -184,7 +180,8 @@ class ReportDesigner {
     if (input.type === "number" && input.value === "") return; // no pisar el valor mientras se borra para reescribir
     const key = input.dataset.rdProperty;
     const value = input.type === "checkbox" ? input.checked : input.type === "number" ? Number(input.value) : input.value;
-    this.selected[key] = value;
+    this.selected[key] = key === "rotation" ? this.normalizeAngle(value) : value;
+    if (key === "rotation") input.value = String(this.selected[key]);
     this.renderCanvas();
     this.renderLayers();
     this.setStatus("Editando elemento…");
@@ -225,6 +222,7 @@ class ReportDesigner {
     const target = event.target.closest("[data-rd-element]");
     if (!target) {
       // Clic en el papel vacío: quitar la selección.
+      this.alignmentGuides = { vertical: null, horizontal: null };
       if (this.selectedId) {
         this.selectedId = null;
         this.render();
@@ -234,6 +232,24 @@ class ReportDesigner {
     const element = this.byId(target.dataset.rdElement);
     if (!element) return;
     this.selectedId = element.id;
+    this.alignmentGuides = { vertical: null, horizontal: null };
+    const rotateHandle = event.target.closest("[data-rd-rotate]");
+    if (rotateHandle && element.type === "line" && !element.locked) {
+      event.preventDefault();
+      const point = this.svgPoint(event);
+      const line = this.lineCoordinates(element);
+      if (!point) return;
+      this.drag = {
+        id: element.id,
+        mode: "rotate",
+        point,
+        center: { x: line.cx, y: line.cy },
+        pointerAngle: Math.atan2(point.y - line.cy, point.x - line.cx) * 180 / Math.PI,
+        rotation: Number(element.rotation) || 0,
+        changed: false,
+      };
+      return;
+    }
     if (element.locked) {
       this.render();
       this.setStatus("Capa bloqueada: desbloquéala en «Capas» para moverla");
@@ -266,12 +282,27 @@ class ReportDesigner {
     const page = ReportDesigner.PAGE;
     const dx = point.x - this.drag.point.x;
     const dy = point.y - this.drag.point.y;
-    if (this.drag.mode === "move") {
+    if (this.drag.mode === "rotate") {
+      const pointerAngle = Math.atan2(point.y - this.drag.center.y, point.x - this.drag.center.x) * 180 / Math.PI;
+      let rotation = this.normalizeAngle(this.drag.rotation + pointerAngle - this.drag.pointerAngle);
+      if (event.shiftKey) rotation = this.normalizeAngle(Math.round(rotation / 15) * 15);
+      element.rotation = this.round(rotation);
+      this.drag.changed = true;
+      this.renderCanvas();
+      this.renderProperties();
+      return;
+    } else if (this.drag.mode === "move") {
       element.x = this.round(Math.max(0, Math.min(page.width - element.w, this.drag.x + dx)));
       element.y = this.round(Math.max(0, Math.min(page.height - element.h, this.drag.y + dy)));
       if (this.snapToGuides) {
         element.x = this.snap(element.x);
         element.y = this.snap(element.y);
+        const alignment = this.alignToElements(element);
+        element.x = this.round(Math.max(0, Math.min(page.width - element.w, element.x + alignment.dx)));
+        element.y = this.round(Math.max(0, Math.min(page.height - element.h, element.y + alignment.dy)));
+        this.alignmentGuides = { vertical: alignment.vertical, horizontal: alignment.horizontal };
+      } else {
+        this.alignmentGuides = { vertical: null, horizontal: null };
       }
     } else {
       let width = this.drag.w + dx;
@@ -294,6 +325,8 @@ class ReportDesigner {
     if (!this.drag) return;
     const changed = this.drag.changed;
     this.drag = null;
+    this.alignmentGuides = { vertical: null, horizontal: null };
+    this.renderCanvas();
     if (changed) {
       this.pushHistory();
       this.setStatus("Diseño modificado");
@@ -412,7 +445,86 @@ class ReportDesigner {
       text: type === "text" ? "Nuevo texto" : "", binding: "",
       x: type === "table" ? 20 : 20, y: 30 + (this.elements.length % 8) * 8, w, h,
       fontSize: 3.5, color: "#191a1d",
+      fontFamily: type === "text" ? "arial" : "",
       fill: "transparent", align: "L", bold: false, visible: true, locked: false,
+      rotation: 0,
+    };
+  }
+
+  normalizeAngle(angle) {
+    return ((Number(angle) + 180) % 360 + 360) % 360 - 180;
+  }
+
+  lineCoordinates(element) {
+    const x = Number(element.x) || 0;
+    const y = Number(element.y) || 0;
+    const w = Number(element.w) || 0;
+    const h = Number(element.h) || 0;
+    const cx = x + w / 2;
+    const cy = y + h / 2;
+    const length = Math.hypot(w, h);
+    const angle = Math.atan2(h, w) + (Number(element.rotation) || 0) * Math.PI / 180;
+    const dx = Math.cos(angle) * length / 2;
+    const dy = Math.sin(angle) * length / 2;
+    return { x1: cx - dx, y1: cy - dy, x2: cx + dx, y2: cy + dy, cx, cy, angle };
+  }
+
+  elementBounds(element) {
+    if (element.type === "line") {
+      const line = this.lineCoordinates(element);
+      return {
+        x: Math.min(line.x1, line.x2),
+        y: Math.min(line.y1, line.y2),
+        w: Math.abs(line.x2 - line.x1),
+        h: Math.abs(line.y2 - line.y1),
+      };
+    }
+    return {
+      x: Number(element.x) || 0,
+      y: Number(element.y) || 0,
+      w: Number(element.w) || 0,
+      h: Number(element.h) || 0,
+    };
+  }
+
+  alignToElements(element) {
+    const moving = this.elementBounds(element);
+    const verticalAnchors = [moving.x, moving.x + moving.w / 2, moving.x + moving.w];
+    const horizontalAnchors = [moving.y, moving.y + moving.h / 2, moving.y + moving.h];
+    const pxPerMm = ReportDesigner.PX_PER_MM * (this.zoom / 100);
+    const threshold = 7 / Math.max(pxPerMm, 0.1);
+    let bestX = null;
+    let bestY = null;
+
+    for (const other of this.elements) {
+      if (other.id === element.id || other.visible === false) continue;
+      const bounds = this.elementBounds(other);
+      const otherVertical = [bounds.x, bounds.x + bounds.w / 2, bounds.x + bounds.w];
+      const otherHorizontal = [bounds.y, bounds.y + bounds.h / 2, bounds.y + bounds.h];
+
+      for (const anchor of verticalAnchors) {
+        for (const target of otherVertical) {
+          const delta = target - anchor;
+          if (Math.abs(delta) <= threshold && (!bestX || Math.abs(delta) < Math.abs(bestX.delta))) {
+            bestX = { delta, position: target };
+          }
+        }
+      }
+      for (const anchor of horizontalAnchors) {
+        for (const target of otherHorizontal) {
+          const delta = target - anchor;
+          if (Math.abs(delta) <= threshold && (!bestY || Math.abs(delta) < Math.abs(bestY.delta))) {
+            bestY = { delta, position: target };
+          }
+        }
+      }
+    }
+
+    return {
+      dx: bestX?.delta || 0,
+      dy: bestY?.delta || 0,
+      vertical: bestX?.position ?? null,
+      horizontal: bestY?.position ?? null,
     };
   }
 
@@ -538,10 +650,10 @@ class ReportDesigner {
       localStorage.setItem(ReportDesigner.STORAGE_KEY, JSON.stringify(this.serialize()));
       this.setDirty(false);
       this.setStatus("Diseño guardado");
-      this.notify("Diseño guardado en este navegador.", "success");
+      toastr.success("Diseño guardado en este navegador.");
     } catch (error) {
       console.error(error);
-      this.notify("No se pudo guardar en el navegador (¿imagen muy pesada?). Usa Archivo → Exportar como JSON.", "error");
+      toastr.error("No se pudo guardar en el navegador (¿imagen muy pesada?). Usa Archivo → Exportar como JSON.");
     }
   }
 
@@ -550,16 +662,16 @@ class ReportDesigner {
     const blob = new Blob([JSON.stringify(this.serialize(), null, 2)], { type: "application/json" });
     this.download(blob, "diseno-reporte.json");
     this.setStatus("Diseño exportado");
-    this.notify("Archivo JSON descargado.", "success");
+    toastr.success("Archivo JSON descargado.");
   }
 
   loadDesign() {
     const stored = localStorage.getItem(ReportDesigner.STORAGE_KEY);
-    if (!stored) return this.notify("No hay un diseño guardado en este navegador.", "warning");
+    if (!stored) return toastr.warning("No hay un diseño guardado en este navegador.");
     this.confirmDiscard().then((ok) => {
       if (!ok) return;
-      try { this.applyDesign(JSON.parse(stored)); this.notify("Diseño cargado.", "success"); }
-      catch (error) { console.error(error); this.notify("El diseño guardado no es válido.", "error"); }
+      try { this.applyDesign(JSON.parse(stored)); toastr.success("Diseño cargado."); }
+      catch (error) { console.error(error); toastr.error("El diseño guardado no es válido."); }
     });
   }
 
@@ -568,8 +680,8 @@ class ReportDesigner {
       if (!ok) return;
       const reader = new FileReader();
       reader.onload = () => {
-        try { this.applyDesign(JSON.parse(String(reader.result))); this.notify("Archivo de diseño cargado.", "success"); }
-        catch (error) { console.error(error); this.notify("No se pudo leer el archivo de diseño.", "error"); }
+        try { this.applyDesign(JSON.parse(String(reader.result))); toastr.success("Archivo de diseño cargado."); }
+        catch (error) { console.error(error); toastr.error("No se pudo leer el archivo de diseño.", "error"); }
       };
       reader.readAsText(file);
     });
@@ -669,12 +781,13 @@ class ReportDesigner {
   /** Crea una sola vez las capas fijas del lienzo (papel, grilla, referencia, márgenes, contenido). */
   buildCanvas() {
     const { width, height } = ReportDesigner.PAGE;
-    this.canvas.innerHTML = `<rect width="${width}" height="${height}" fill="#fff"/><g data-rd-grid pointer-events="none"></g><image data-rd-ref x="0" y="0" width="${width}" height="${height}" preserveAspectRatio="none" pointer-events="none" display="none"></image><g data-rd-margins pointer-events="none"></g><g data-rd-content></g>`;
+    this.canvas.innerHTML = `<rect width="${width}" height="${height}" fill="#fff"/><g data-rd-grid pointer-events="none"></g><image data-rd-ref x="0" y="0" width="${width}" height="${height}" preserveAspectRatio="none" pointer-events="none" display="none"></image><g data-rd-margins pointer-events="none"></g><g data-rd-content></g><g data-rd-alignment-guides pointer-events="none"></g>`;
     this.dom = {
       grid: this.canvas.querySelector("[data-rd-grid]"),
       reference: this.canvas.querySelector("[data-rd-ref]"),
       margins: this.canvas.querySelector("[data-rd-margins]"),
       content: this.canvas.querySelector("[data-rd-content]"),
+      alignmentGuides: this.canvas.querySelector("[data-rd-alignment-guides]"),
     };
   }
 
@@ -706,6 +819,21 @@ class ReportDesigner {
     const visible = this.elements.filter((element) => element.visible !== false).map((element) => this.elementMarkup(element)).join("");
     const empty = this.elements.length ? "" : `<g pointer-events="none" text-anchor="middle" font-family="Arial,sans-serif" fill="#73757d"><text x="105" y="145" font-size="4.5" font-weight="700">Lienzo vacío</text><text x="105" y="152" font-size="3">Agrega un elemento desde el panel izquierdo</text></g>`;
     this.dom.content.innerHTML = visible + empty;
+    this.dom.alignmentGuides.innerHTML = this.alignmentGuidesMarkup();
+  }
+
+  alignmentGuidesMarkup() {
+    const { width, height } = ReportDesigner.PAGE;
+    const guides = [];
+    if (this.alignmentGuides.vertical != null) {
+      const x = this.alignmentGuides.vertical;
+      guides.push(`<line x1="${x}" y1="0" x2="${x}" y2="${height}" stroke="#1683e8" stroke-width=".45" stroke-dasharray="1.4 1"/>`);
+    }
+    if (this.alignmentGuides.horizontal != null) {
+      const y = this.alignmentGuides.horizontal;
+      guides.push(`<line x1="0" y1="${y}" x2="${width}" y2="${y}" stroke="#1683e8" stroke-width=".45" stroke-dasharray="1.4 1"/>`);
+    }
+    return guides.join("");
   }
 
   gridMarkup() {
@@ -730,20 +858,24 @@ class ReportDesigner {
     const w = Number(element.w) || 0;
     const h = Number(element.h) || 0;
     const isLine = element.type === "line";
-    // Caja que ocupa el elemento (una línea puede tener desnivel negativo).
-    const box = { x, y: isLine ? Math.min(y, y + h) : y, w: Math.max(w, 1), h: isLine ? Math.abs(h) : Math.max(h, 1) };
+    const line = isLine ? this.lineCoordinates(element) : null;
+    // Caja que ocupa el elemento; en una línea se calcula a partir de los extremos ya rotados.
+    const box = isLine
+      ? { x: Math.min(line.x1, line.x2), y: Math.min(line.y1, line.y2), w: Math.max(Math.abs(line.x2 - line.x1), 1), h: Math.max(Math.abs(line.y2 - line.y1), 1) }
+      : { x, y, w: Math.max(w, 1), h: Math.max(h, 1) };
     let shape = "";
     let overflow = false;
 
     if (element.type === "text") {
       const size = Number(element.fontSize) || 3;
+      const fontFamily = ReportDesigner.FONT_FAMILIES[element.fontFamily] || ReportDesigner.FONT_FAMILIES.arial;
       const align = element.align === "C" ? "middle" : element.align === "R" ? "end" : "start";
       const tx = element.align === "C" ? x + w / 2 : element.align === "R" ? x + w : x;
       const lines = this.textLines(element);
       overflow = lines.length * size * 1.2 > h * 1.05 + 0.01;
-      shape = `<text x="${tx}" y="${y + size}" text-anchor="${align}" font-family="Arial,sans-serif" font-size="${size}" fill="${color}" font-weight="${element.bold ? "700" : "400"}">${lines.map((line, index) => `<tspan x="${tx}" dy="${index ? size * 1.2 : 0}">${this.escapeHtml(line)}</tspan>`).join("")}</text>`;
+      shape = `<text x="${tx}" y="${y + size}" text-anchor="${align}" font-family="${this.escapeAttr(fontFamily.css)}" font-size="${size}" fill="${color}" font-weight="${element.bold ? "700" : "400"}">${lines.map((line, index) => `<tspan x="${tx}" dy="${index ? size * 1.2 : 0}">${this.escapeHtml(line)}</tspan>`).join("")}</text>`;
     } else if (isLine) {
-      shape = `<line x1="${x}" y1="${y}" x2="${x + w}" y2="${y + h}" stroke="${color}" stroke-width=".35"/>`;
+      shape = `<line x1="${line.x1}" y1="${line.y1}" x2="${line.x2}" y2="${line.y2}" stroke="${color}" stroke-width=".35"/>`;
     } else if (element.type === "rect") {
       const filled = element.fill && element.fill !== "transparent";
       shape = `<rect x="${x}" y="${y}" width="${box.w}" height="${box.h}" fill="${filled ? this.escapeAttr(element.fill) : "none"}" stroke="${color}" stroke-width=".35"/>`;
@@ -768,8 +900,15 @@ class ReportDesigner {
     const hitH = Math.max(box.h, 4);
     const hit = `<rect class="rd-hit${overflow ? " is-overflow" : ""}" x="${box.x - (hitW - box.w) / 2}" y="${box.y - (hitH - box.h) / 2}" width="${hitW}" height="${hitH}"/>`;
 
+    const rotationHandle = selected && isLine && !element.locked
+      ? (() => {
+        const handleX = line.cx + Math.sin(line.angle) * 7;
+        const handleY = line.cy - Math.cos(line.angle) * 7;
+        return `<line x1="${line.cx}" y1="${line.cy}" x2="${handleX}" y2="${handleY}" stroke="#d99b00" stroke-width=".3" stroke-dasharray=".8 .6" pointer-events="none"/><circle data-rd-rotate cx="${handleX}" cy="${handleY}" r="2.2" fill="#fff" stroke="#d99b00" stroke-width=".6" style="cursor:grab"/><text x="${handleX}" y="${handleY + .8}" text-anchor="middle" font-size="2.4" fill="#191a1d" pointer-events="none">↻</text>`;
+      })()
+      : "";
     const outline = selected
-      ? `<rect x="${box.x - 1}" y="${box.y - 1}" width="${box.w + 2}" height="${box.h + 2}" fill="none" stroke="#d99b00" stroke-width=".35" stroke-dasharray="1 1" pointer-events="none"/>${element.locked ? "" : `<rect data-rd-resize="se" x="${box.x + box.w - 1.5}" y="${box.y + box.h - 1.5}" width="3" height="3" fill="#d99b00" stroke="#fff" stroke-width=".3" style="cursor:nwse-resize"/>`}`
+      ? `<rect x="${box.x - 1}" y="${box.y - 1}" width="${box.w + 2}" height="${box.h + 2}" fill="none" stroke="#d99b00" stroke-width=".35" stroke-dasharray="1 1" pointer-events="none"/>${element.locked ? "" : `<rect data-rd-resize="se" x="${box.x + box.w - 1.5}" y="${box.y + box.h - 1.5}" width="3" height="3" fill="#d99b00" stroke="#fff" stroke-width=".3" style="cursor:nwse-resize"/>`}${rotationHandle}`
       : "";
     return `<g data-rd-element="${id}" style="cursor:${element.locked ? "not-allowed" : "move"}">${hit}${shape}${outline}</g>`;
   }
@@ -803,11 +942,12 @@ class ReportDesigner {
     const type = element.type;
     const index = this.elements.findIndex((item) => item.id === element.id);
 
-    const field = (key, label, value, { inputType = "text", step, min, unit, placeholder } = {}) => {
-      const attrs = `${step != null ? ` step="${step}"` : ""}${min != null ? ` min="${min}"` : ""}${placeholder ? ` placeholder="${this.escapeAttr(placeholder)}"` : ""}`;
+    const field = (key, label, value, { inputType = "text", step, min, max, unit, placeholder } = {}) => {
+      const attrs = `${step != null ? ` step="${step}"` : ""}${min != null ? ` min="${min}"` : ""}${max != null ? ` max="${max}"` : ""}${placeholder ? ` placeholder="${this.escapeAttr(placeholder)}"` : ""}`;
       const input = `<input class="form-control" id="rd-prop-${key}" type="${inputType}"${attrs} value="${this.escapeAttr(value ?? "")}" data-rd-property="${key}">`;
       return `<div><label class="form-label" for="rd-prop-${key}">${label}</label>${unit ? `<div class="input-group">${input}<span class="input-group-text">${unit}</span></div>` : input}</div>`;
     };
+    const colorField = (key, label, value) => `<div><label class="form-label" for="rd-prop-${key}">${label}</label><div class="input-group rd-color-control"><input class="form-control form-control-color" id="rd-prop-${key}" type="color" value="${this.escapeAttr(value)}" data-rd-property="${key}"><button class="btn btn-outline-secondary btn-sm" type="button" data-rd-action="pick-color" data-rd-color-target="${key}" title="Tomar un color de la pantalla" aria-label="Tomar color para ${label.toLowerCase()}"><i class="fa fa-eye-dropper" aria-hidden="true"></i></button></div></div>`;
     const group = (title, body) => `<section class="rd-prop-group"><h3 class="rd-section-title">${title}</h3>${body}</section>`;
 
     const head = `<div class="rd-prop-head"><span class="rd-layer-icon"><i class="fa ${this.iconFor(type)}"></i></span><div class="flex-grow-1"><div class="rd-prop-type">${ReportDesigner.ELEMENT_NAMES[type]}${element.locked ? ' · <i class="fa fa-lock"></i> bloqueado' : ""}</div>${field("label", "Nombre de la capa", element.label || "")}</div></div>`;
@@ -815,15 +955,21 @@ class ReportDesigner {
     let content = "";
     if (type === "text") {
       const size = Number(element.fontSize) || 3;
+      const fontKey = ReportDesigner.FONT_FAMILIES[element.fontFamily] ? element.fontFamily : "arial";
+      const fontFamily = ReportDesigner.FONT_FAMILIES[fontKey];
       const align = element.align || "L";
       const radio = (value, icon, title) => `<input class="visually-hidden" type="radio" name="rd-align" id="rd-align-${value}" value="${value}" data-rd-property="align" ${align === value ? "checked" : ""}><label for="rd-align-${value}" title="${title}"><i class="fa ${icon}"></i><span class="visually-hidden">${title}</span></label>`;
       const overflow = this.textLines(element).length * size * 1.2 > (Number(element.h) || 0) * 1.05 + 0.01;
       content += group("Contenido", `<div class="mb-2"><label class="form-label" for="rd-prop-text">Texto</label><textarea class="form-control" id="rd-prop-text" rows="3" data-rd-property="text">${this.escapeHtml(element.text || "")}</textarea></div>${field("binding", "Campo dinámico", element.binding || "", { placeholder: "cliente.nombre" })}<div class="rd-hint">Si defines un campo dinámico, reemplaza al texto al generar el PDF.</div>${overflow ? `<div class="rd-hint is-warning"><i class="fa fa-triangle-exclamation me-1"></i>El texto no cabe en el alto del cuadro. Aumenta el alto o reduce el tamaño.</div>` : ""}`);
-      content += group("Tipografía", `<div class="rd-prop-grid">${field("fontSize", "Tamaño", element.fontSize, { inputType: "number", step: ".1", min: "0.5", unit: "mm" })}<div><label class="form-label" for="rd-prop-color">Color</label><input class="form-control form-control-color" id="rd-prop-color" type="color" value="${this.escapeAttr(element.color || "#191a1d")}" data-rd-property="color"></div></div><div class="rd-hint">≈ ${Math.round(size * ReportDesigner.MM_TO_PT * 10) / 10} pt en el PDF</div><div class="rd-style-row"><div class="rd-segment" role="group" aria-label="Negrita"><input class="visually-hidden" type="checkbox" id="rd-bold" data-rd-property="bold" ${element.bold ? "checked" : ""}><label for="rd-bold" title="Negrita"><i class="fa fa-bold"></i><span class="visually-hidden">Negrita</span></label></div><div class="rd-segment" role="radiogroup" aria-label="Alineación">${radio("L", "fa-align-left", "Izquierda")}${radio("C", "fa-align-center", "Centro")}${radio("R", "fa-align-right", "Derecha")}</div></div>`);
+      const fontOptions = Object.entries(ReportDesigner.FONT_FAMILIES).map(([key, font]) => `<option value="${key}" ${fontKey === key ? "selected" : ""}>${font.label}</option>`).join("");
+      content += group("Tipografía", `<div class="mb-2"><label class="form-label" for="rd-prop-fontFamily">Fuente</label><select class="form-select" id="rd-prop-fontFamily" data-rd-property="fontFamily">${fontOptions}</select></div><div class="rd-prop-grid">${field("fontSize", "Tamaño", element.fontSize, { inputType: "number", step: ".1", min: "0.5", unit: "mm" })}${colorField("color", "Color", element.color || "#191a1d")}</div><div class="rd-hint">≈ ${Math.round(size * ReportDesigner.MM_TO_PT * 10) / 10} pt en el PDF</div><div class="rd-style-row"><div class="rd-segment" role="group" aria-label="Negrita"><input class="visually-hidden" type="checkbox" id="rd-bold" data-rd-property="bold" ${element.bold ? "checked" : ""}><label for="rd-bold" title="Negrita"><i class="fa fa-bold"></i><span class="visually-hidden">Negrita</span></label></div><div class="rd-segment" role="radiogroup" aria-label="Alineación">${radio("L", "fa-align-left", "Izquierda")}${radio("C", "fa-align-center", "Centro")}${radio("R", "fa-align-right", "Derecha")}</div></div>`);
     } else if (type === "line" || type === "rect" || type === "circle" || type === "qrcode") {
       const hasFill = element.fill && element.fill !== "transparent";
       const fillValue = /^#[0-9a-f]{6}$/i.test(element.fill || "") ? element.fill : "#ffffff";
-      content += group("Apariencia", `<div class="rd-prop-grid"><div><label class="form-label" for="rd-prop-color">${type === "qrcode" ? "Color" : "Trazo"}</label><input class="form-control form-control-color" id="rd-prop-color" type="color" value="${this.escapeAttr(element.color || "#191a1d")}" data-rd-property="color"></div>${type === "rect" ? `<div><label class="form-label" for="rd-prop-fill">Relleno</label><input class="form-control form-control-color" id="rd-prop-fill" type="color" value="${this.escapeAttr(fillValue)}" data-rd-property="fill"></div>` : ""}</div>${type === "rect" ? `<button class="btn btn-outline-secondary btn-sm w-100 mt-2" type="button" data-rd-action="clear-fill" ${hasFill ? "" : "disabled"}><i class="fa fa-droplet-slash me-1"></i>${hasFill ? "Quitar relleno" : "Sin relleno"}</button>` : ""}`);
+      content += group("Apariencia", `<div class="rd-prop-grid">${colorField("color", type === "qrcode" ? "Color" : "Trazo", element.color || "#191a1d")}${type === "rect" ? colorField("fill", "Relleno", fillValue) : ""}</div>${type === "rect" ? `<button class="btn btn-outline-secondary btn-sm w-100 mt-2" type="button" data-rd-action="clear-fill" ${hasFill ? "" : "disabled"}><i class="fa fa-droplet-slash me-1"></i>${hasFill ? "Quitar relleno" : "Sin relleno"}</button>` : ""}`);
+      if (type === "line") {
+        content += group("Rotación", `${field("rotation", "Ángulo", this.normalizeAngle(element.rotation || 0), { inputType: "number", step: "1", min: "-180", max: "180", unit: "°" })}<div class="rd-btn-row mt-2"><button class="btn btn-outline-secondary btn-sm" type="button" data-rd-action="rotation-reset"><i class="fa fa-rotate-left me-1"></i>Restablecer</button></div><p class="rd-hint">Arrastra el control circular en el lienzo para girar la línea. Mantén Mayús para ajustar en pasos de 15°.</p>`);
+      }
     }
 
     const sizeLabels = type === "line" ? ["Largo", "Desnivel"] : ["Ancho", "Alto"];
@@ -838,9 +984,10 @@ class ReportDesigner {
   /* Texto: medición y saltos de línea                                   */
   /* ------------------------------------------------------------------ */
 
-  measureText(text, size, bold) {
+  measureText(text, size, bold, fontFamily = "arial") {
     if (!this.measureCtx) this.measureCtx = document.createElement("canvas").getContext("2d");
-    this.measureCtx.font = `${bold ? "700" : "400"} 100px Arial, sans-serif`;
+    const family = ReportDesigner.FONT_FAMILIES[fontFamily] || ReportDesigner.FONT_FAMILIES.arial;
+    this.measureCtx.font = `${bold ? "700" : "400"} 100px ${family.css}`;
     return (this.measureCtx.measureText(text).width * size) / 100;
   }
 
@@ -854,7 +1001,7 @@ class ReportDesigner {
       let line = "";
       paragraph.split(" ").forEach((word) => {
         const candidate = line ? `${line} ${word}` : word;
-        if (line && this.measureText(candidate, size, element.bold) > maxWidth) {
+        if (line && this.measureText(candidate, size, element.bold, element.fontFamily) > maxWidth) {
           lines.push(line);
           line = word;
         } else line = candidate;
@@ -887,8 +1034,12 @@ class ReportDesigner {
       if (element.type === "text") {
         const text = element.binding ? `$data['${this.phpEscape(element.binding)}'] ?? ''` : `'${this.phpEscape(element.text || "")}'`;
         const align = { L: "L", C: "C", R: "R" }[element.align] || "L";
-        code.push(`// ${label}`, `$this->SetFont('helvetica', '${element.bold ? "B" : ""}', ${pt(element.fontSize)});`, `$this->SetTextColor(${rgb(element.color)});`, `$this->SetXY(${x}, ${y});`, `$this->MultiCell(${w}, ${h}, ${text}, 0, '${align}', false, 1, '', '', true, 0, false, true, ${h}, 'T', false);`, "");
-      } else if (element.type === "line") code.push(`// ${label}`, `$this->SetDrawColor(${rgb(element.color)});`, `$this->Line(${x}, ${y}, ${n(x + w)}, ${n(y + h)});`, "");
+        const font = ReportDesigner.FONT_FAMILIES[element.fontFamily] || ReportDesigner.FONT_FAMILIES.arial;
+        code.push(`// ${label}`, `$this->SetFont('${font.tcpdf}', '${element.bold ? "B" : ""}', ${pt(element.fontSize)});`, `$this->SetTextColor(${rgb(element.color)});`, `$this->SetXY(${x}, ${y});`, `$this->MultiCell(${w}, ${h}, ${text}, 0, '${align}', false, 1, '', '', true, 0, false, true, ${h}, 'T', false);`, "");
+      } else if (element.type === "line") {
+        const line = this.lineCoordinates(element);
+        code.push(`// ${label}`, `$this->SetDrawColor(${rgb(element.color)});`, `$this->Line(${n(line.x1)}, ${n(line.y1)}, ${n(line.x2)}, ${n(line.y2)});`, "");
+      }
       else if (element.type === "rect") {
         const filled = /^#[0-9a-f]{6}$/i.test(element.fill || "");
         code.push(`// ${label}`, `$this->SetDrawColor(${rgb(element.color)});`);
@@ -923,7 +1074,7 @@ class ReportDesigner {
   }
 
   previewPDF() {
-    if (!window.jspdf?.jsPDF) return this.notify("No se cargó jsPDF para la vista previa.", "error");
+    if (!window.jspdf?.jsPDF) return toastr.error("No se cargó jsPDF para la vista previa.");
     const { jsPDF } = window.jspdf;
     const pdf = new jsPDF("p", "mm", "a4");
     pdf.setLineWidth(0.35);
@@ -936,10 +1087,14 @@ class ReportDesigner {
         const size = Number(element.fontSize) || 3;
         const align = element.align === "C" ? "center" : element.align === "R" ? "right" : "left";
         const tx = element.align === "C" ? x + w / 2 : element.align === "R" ? x + w : x;
-        pdf.setFont("helvetica", element.bold ? "bold" : "normal");
+        const font = ReportDesigner.FONT_FAMILIES[element.fontFamily] || ReportDesigner.FONT_FAMILIES.arial;
+        pdf.setFont(font.jsPDF, element.bold ? "bold" : "normal");
         pdf.setFontSize(size * ReportDesigner.MM_TO_PT);
         pdf.text(this.textLines(element), tx, y + size, { align, lineHeightFactor: 1.2 });
-      } else if (element.type === "line") pdf.line(x, y, x + w, y + h);
+      } else if (element.type === "line") {
+        const line = this.lineCoordinates(element);
+        pdf.line(line.x1, line.y1, line.x2, line.y2);
+      }
       else if (element.type === "rect") {
         const filled = /^#[0-9a-f]{6}$/i.test(element.fill || "");
         if (filled) pdf.setFillColor(...this.hexToRgb(element.fill));
@@ -965,11 +1120,11 @@ class ReportDesigner {
   copyCode() {
     const textarea = this.root.querySelector("[data-rd-code]");
     if (navigator.clipboard?.writeText) {
-      navigator.clipboard.writeText(textarea.value).then(() => this.notify("Código copiado.", "success"));
+      navigator.clipboard.writeText(textarea.value).then(() => toastr.success("Código copiado."));
     } else {
       textarea.select();
       document.execCommand("copy");
-      this.notify("Código copiado.", "success");
+      toastr.success("Código copiado.");
     }
   }
 
@@ -988,6 +1143,29 @@ class ReportDesigner {
     this.setStatus(message);
   }
 
+  async pickColor(property) {
+    if (!this.selected || !["color", "fill"].includes(property)) return;
+    if (typeof window.EyeDropper !== "function") {
+      return toastr.warning("El cuentagotas requiere un navegador compatible, como Chrome o Edge reciente.");
+    }
+
+    const selectedId = this.selectedId;
+    try {
+      const { sRGBHex } = await new window.EyeDropper().open();
+      if (this.selectedId !== selectedId) {
+        return toastr.warning("La selección cambió. Vuelve a elegir el cuentagotas para aplicar el color.");
+      }
+      const element = this.byId(selectedId);
+      if (!element) return;
+      element[property] = sRGBHex.toUpperCase();
+      this.commit(property === "fill" ? "Relleno actualizado" : "Color actualizado");
+    } catch (error) {
+      if (error?.name === "AbortError") return;
+      console.error(error);
+      toastr.error("No se pudo abrir el cuentagotas. Comprueba que el sitio use HTTPS o localhost.");
+    }
+  }
+
   setStatus(message) {
     const status = this.root.querySelector("[data-rd-status]");
     if (status) status.textContent = message;
@@ -996,12 +1174,6 @@ class ReportDesigner {
   setDirty(value) {
     this.dirty = value;
     this.root.querySelectorAll("[data-rd-dirty]").forEach((badge) => { badge.hidden = !value; });
-  }
-
-  notify(message, type = "info") {
-    if (window.toastr && typeof toastr[type] === "function") toastr[type](message);
-    else if (type === "error") window.alert(message);
-    else this.setStatus(message);
   }
 
   confirmAction({ title, text, confirmText = "Aceptar" }) {

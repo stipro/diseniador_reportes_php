@@ -30,4 +30,8 @@
 
 <!-- Scripts personalizados Bee Framework -->
 <script src="<?php echo JS . 'internalAnchors.js?v=' . get_asset_version(); ?>"></script>
+<?php if ($d->controller == 'creador_reporte_tcpdf') : ?>
+	<script src="<?php echo JS . 'ReportDesigner.js'; ?>"></script>
+	<script defer src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<?php endif; ?>
 <script src="<?php echo JS . 'main.min.js?v=' . get_asset_version(); ?>"></script>

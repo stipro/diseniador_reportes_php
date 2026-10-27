@@ -24,5 +24,9 @@
 <!-- Estilos locales editables en assets/css/main.css; Prepros genera main.min.css. -->
 <link rel="stylesheet" href="<?php echo CSS . 'main.min.css?v='.get_asset_version(); ?>">
 
+<?php if ($d->controller == 'creador_reporte_tcpdf') : ?>
+	<link rel="stylesheet" href="<?php echo CSS . 'reportDesigner.css?v=' . get_asset_version(); ?>">
+<?php endif; ?>
+
 <!-- Estilos registrados manualmente -->
 <?php echo load_styles(); ?>

@@ -273,3 +273,21 @@ async function test_api() {
     toastr.error(res.msg, 'Hubo un error');
   }
 }
+
+document.addEventListener("alpine:init", () => {
+  Alpine.data("reportDesignerModule", () => ({
+    designer: null,
+
+    init() {
+      this.$nextTick(() => {
+        this.designer = new ReportDesigner({ root: this.$root });
+        this.designer.init();
+      });
+    },
+
+    destroy() {
+      this.designer?.destroy();
+      this.designer = null;
+    },
+  }));
+});

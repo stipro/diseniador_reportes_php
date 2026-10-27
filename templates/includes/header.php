@@ -27,6 +27,12 @@
   <!-- styles.php -->
   <?php require_once INCLUDES . 'styles.php'; ?>
 
+  <!-- Alpine Plugins -->
+  <script defer src="https://cdn.jsdelivr.net/npm/@alpinejs/mask@3.x.x/dist/cdn.min.js"></script>
+
+  <!-- Alpine.js -->
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.17.5/dist/cdn.min.js"></script>
+
   <!-- Carga de meta tags -->
   <?php echo get_page_og_meta_tags(); ?>
   

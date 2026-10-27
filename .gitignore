@@ -18,3 +18,13 @@ app/config/.env.backup.*
 # Internal development context (kept locally, never published)
 /AGENTS.md
 /docs/*.md
+
+# Generated caches, logs, and local exports
+/Prepros Export/
+**/.sass-cache/
+**/.phpunit.cache/
+**/.cache/
+*.log
+.DS_Store
+Thumbs.db
+desktop.ini

@@ -21,7 +21,7 @@
 <!-- CDN Vue js 3 | definido en settings.php -->
 <?php echo get_vuejs(); ?>
 
-<!-- Estilos propios compilados desde assets/scss/ -->
+<!-- Estilos locales editables en assets/css/main.css; Prepros genera main.min.css. -->
 <link rel="stylesheet" href="<?php echo CSS . 'main.min.css?v='.get_asset_version(); ?>">
 
 <!-- Estilos registrados manualmente -->

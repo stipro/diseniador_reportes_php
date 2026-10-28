@@ -102,6 +102,51 @@
 	padding-inline: 0.4rem;
 }
 
+.rd-table-border-buttons {
+	display: grid;
+	grid-template-columns: repeat(6, minmax(0, 1fr));
+	gap: 0.2rem;
+}
+
+.rd-table-border-button {
+	display: grid;
+	place-items: center;
+	min-width: 0;
+	height: 2.65rem;
+	padding: 0.35rem;
+	color: var(--bee-muted);
+	background: #fff;
+	border: 1px solid var(--bee-border);
+	border-radius: 0.45rem;
+	transition: color 120ms ease, background-color 120ms ease, border-color 120ms ease;
+}
+
+.rd-table-border-button:hover {
+	color: var(--bee-ink);
+	border-color: var(--bee-honey-strong);
+}
+
+.rd-table-border-button.is-active {
+	color: #fff;
+	background: var(--bee-honey-strong);
+	border-color: var(--bee-honey-strong);
+}
+
+.rd-table-border-button:focus-visible {
+	outline: 2px solid var(--bee-honey-strong);
+	outline-offset: 2px;
+}
+
+.rd-table-border-button svg {
+	width: 1.25rem;
+	height: 1.25rem;
+	fill: none;
+	stroke: currentColor;
+	stroke-linecap: round;
+	stroke-linejoin: round;
+	stroke-width: 1.8;
+}
+
 .rd-shell .form-label {
 	display: block;
 	margin-bottom: 0.25rem;
@@ -929,5 +974,65 @@
 
 	.rd-footnote {
 		font-size: 0.72rem;
+	}
+}
+
+/* Controles legibles para el formato de la celda manual seleccionada. */
+.rd-cell-position {
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+	margin-bottom: 0.75rem;
+	color: var(--bee-muted);
+	font-size: 0.82rem;
+}
+
+.rd-cell-position .fa {
+	color: var(--bee-accent, #d99b00);
+}
+
+.rd-cell-format-grid {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) minmax(8.5rem, 0.8fr);
+	gap: 0.75rem;
+	align-items: end;
+}
+
+.rd-cell-control {
+	min-width: 0;
+}
+
+.rd-cell-control .form-label {
+	display: block;
+	margin-bottom: 0.35rem;
+	font-size: 0.78rem;
+	font-weight: 600;
+}
+
+.rd-cell-control .form-select,
+.rd-cell-control .input-group {
+	width: 100%;
+	min-width: 0;
+}
+
+.rd-cell-size input[type="number"] {
+	min-width: 3.25rem;
+	padding-right: 0.35rem;
+	padding-left: 0.5rem;
+	font-variant-numeric: tabular-nums;
+}
+
+.rd-cell-format-actions {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: space-between;
+	gap: 0.6rem;
+	margin-top: 0.75rem;
+}
+
+@media (max-width: 380px) {
+	.rd-cell-format-grid {
+		grid-template-columns: minmax(0, 1fr);
 	}
 }
